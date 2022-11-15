@@ -31,7 +31,7 @@ where e is internal energy and p+{\inf} represents the cohesion effects in liqui
 Here the simplification ()_t :=D/Dt is assumed, where the latter denotes a material derivative.
 xi is a lagrangian coordinate as described in Duyen Phan Thi My's PhD thesis.
 
-The objective of this script is to solve the piston problem in Lagrangian coordinates,
+The objective of this script is to solve the Euler equations in Lagrangian coordinates,
 where the left boundary condition is prescribed by a moving piston.
 
 """
@@ -45,7 +45,7 @@ import euler_HLL_1D
 gamma = 1.4 # Ratio of specific heats
 
 def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_language='Fortran',
-          mx=1000, tfinal= 20*np.pi, nout=10):#tfluct_solver=True):
+          mx=10000, tfinal= 20, nout=10):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -59,13 +59,17 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
 
     if solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(rs)
-        solver.time_integrator = 'SSP33'
-        solver.cfl_max = 0.65
-        solver.cfl_desired = 0.6
+        solver.lim_type = 1
+        #solver.time_integrator = 'SSPLMM32'# 'SSP33'
+        solver.cfl_max = 2.5
+        #solver.cfl_desired = 0.8
         
     elif solver_type=='classic':
         solver = pyclaw.ClawSolver1D(rs)
-        solver.limiters = 4
+        solver.order =2
+        #solver.limiters = 4
+        #solver.cfl_max = 0.9
+        #solver.cfl_desired =0.8
     
     #Number of equations and waves
     num_eqn = 3
@@ -73,16 +77,18 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
     
     #Spatial domain
     xlower = 0.0
-    xupper = 120.0
+    xupper = 200.0
 
     solver.kernel_language = kernel_language
 
-    solver.bc_lower[0] = pyclaw.BC.custom#pyclaw.BC.wall
+    solver.bc_lower[0] = pyclaw.BC.custom
     solver.user_bc_lower = piston_bc
     solver.bc_upper[0] = pyclaw.BC.extrap
 
     solver.num_waves = num_waves
     solver.num_eqn = num_eqn
+
+    #solver.before_step = b4step
 
     #mx = 800;
     x = pyclaw.Dimension(xlower,xupper,mx,name='x')
@@ -121,7 +127,7 @@ def init(state, x):
 
 def piston_bc(state,dim,t,qbc,auxbc,num_ghost):
     """Initial pulse generated at left boundary by prescribed motion"""
-    M=1.
+    M=1.5
     if dim.on_lower_boundary:
         qbc[0,:num_ghost] = qbc[0,num_ghost]
         qbc[1,:num_ghost] = qbc[1,num_ghost]
@@ -131,19 +137,39 @@ def piston_bc(state,dim,t,qbc,auxbc,num_ghost):
         deltaxi = xi[1]-xi[0]
         [V1,u1,eps1] = state.q[:,0]
         p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
-        p0 = p1 - M*np.cos(t*deltaxi)
+        p0 = p1 - M*np.cos(t)*deltaxi
         u0 = -2*M*np.sin(t) - u1
         deltap = (p1-p0)/(p1+p0)
         V0 = V1*(gamma +deltap)/(gamma-deltap)
         eps0 = V0*p0/(gamma-1)+0.5*u0**2
-        #if abs(t0)<=1.: vwall = -a1*(1.+np.cos(t0*np.pi))
-        #else: vwall=0.
+        
         for ibc in range(num_ghost-1):
             #qbc[1,num_ghost-ibc-1] = -2*M*np.sin(t)-state.q[1,0]
             #qbc[1,num_ghost-ibc-1] = 2*vwall*state.aux[1,ibc] - qbc[1,num_ghost+ibc]
             qbc[0,num_ghost-ibc-1] = V0
             qbc[1,num_ghost-ibc-1] = u0
             qbc[2,num_ghost-ibc-1] = eps0
+
+def b4step(solver,state):
+    #Retrieving data
+    M=1.5
+    t = state.t 
+    gamma = state.problem_data['gamma']#t1=state.problem_data['t1']; 
+    xi = state.grid.x.centers; 
+    deltaxi = xi[1]-xi[0]
+    [V1,u1,eps1] = state.q[:,1]
+    p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
+    p0 = p1 - M*np.cos(t*deltaxi)
+    u0 = -2*M*np.sin(t) - u1
+    deltap = (p1-p0)/(p1+p0)
+    V0 = V1*(gamma +deltap)/(gamma-deltap)
+    eps0 = V0*p0/(gamma-1)+0.5*u0**2
+
+    state.q[0,0] = V0
+    state.q[1,0] = u0
+    state.q[2,0] = eps0
+
+
 #--------------------------
 def setplot(plotdata):
 #--------------------------
@@ -153,11 +179,12 @@ def setplot(plotdata):
     Output: a modified version of plotdata.
     """ 
     plotdata.clearfigures()  # clear any old figures,axes,items data
-
+    xmin, xmax = 0., 120.
     plotfigure = plotdata.new_plotfigure(name='', figno=0)
 
     plotaxes = plotfigure.new_plotaxes()
     plotaxes.axescmd = 'subplot(211)'
+    plotaxes.xlimits = [xmin,xmax]
     plotaxes.title = 'V'
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
@@ -166,6 +193,8 @@ def setplot(plotdata):
     
     plotaxes = plotfigure.new_plotaxes()
     plotaxes.axescmd = 'subplot(212)'
+    plotaxes.xlimits = [xmin,xmax]
+    plotaxes.ylimits = [-1.5,1.5]
     plotaxes.title = 'u'
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')

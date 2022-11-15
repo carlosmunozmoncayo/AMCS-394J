@@ -55,19 +55,31 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         pl = gamma1*(epsl-0.5d0*ul**2)/Vl
         pr = gamma1*(epsr-0.5d0*ur**2)/Vr
         !Flux at left and right states
-        fql = (/ -ul, pl, ul*pl /)
-        fqr = (/ -ur, pr, ur*pr /)
+        fql(1) = -ul
+        fql(2) = pl
+        fql(3) = ul*pl
+        fqr(1) = -ur
+        fqr(2) = pr
+        fqr(3) = ur*pr
+
+        !fql = (/ -ul, pl, ul*pl /)
+        !fqr = (/ -ur, pr, ur*pr /)
         !Smaller and larger eigenvales evaluated at left and right states
         dl = dsqrt(pl/Vl)
         dr = dsqrt(pr/Vr)
         !Defining some simple HLL speeds (neglecting contact discontinuity)
-        s1 = -dl
-        s2 = dr
+        s1 = -max(dl,dr)
+        s2 = max(dl,dr)
         !Middle state HLL
         q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
         !Defining waves for Clawpack
-        wave(:,1,i) = q_m-q_l
-        wave(:,1,i) = q_r-q_m
+        do m=1,3
+            wave(m,1,i) = q_m(m)-q_l(m)
+            wave(m,2,i) = q_r(m)-q_m(m)
+        end do
+
+        !wave(:,1,i) = q_m-q_l
+        !wave(:,2,i) = q_r-q_m
         !Defining speeds for Clawpack
         s(1,i) = s1
         s(2,i) = s2
