@@ -38,13 +38,14 @@ where the left boundary condition is prescribed by a moving piston.
 from __future__ import absolute_import
 from __future__ import print_function
 from clawpack import riemann
+import numpy as np
 #from clawpack.riemann.euler_with_efix_1D_constants import *
 import euler_HLL_1D
 
 gamma = 1.4 # Ratio of specific heats
 
 def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_language='Fortran',
-          mx=800, tfinal= 0.05, nout=10):#tfluct_solver=True):
+          mx=1000, tfinal= 20*np.pi, nout=10):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -72,12 +73,13 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
     
     #Spatial domain
     xlower = 0.0
-    xupper = 1.0
+    xupper = 120.0
 
     solver.kernel_language = kernel_language
 
-    solver.bc_lower[0]=pyclaw.BC.wall
-    solver.bc_upper[0]=pyclaw.BC.wall
+    solver.bc_lower[0] = pyclaw.BC.custom#pyclaw.BC.wall
+    solver.user_bc_lower = piston_bc
+    solver.bc_upper[0] = pyclaw.BC.extrap
 
     solver.num_waves = num_waves
     solver.num_eqn = num_eqn
@@ -88,8 +90,6 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
     state = pyclaw.State(domain,num_eqn)
 
     state.problem_data['gamma'] = gamma
-    if kernel_language =='Python':
-        state.problem_data['efix'] = False
 
     x = state.grid.x.centers
     
@@ -107,13 +107,43 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
 
     return claw
 
-def init(state,x):
-    density, momentum, energy = 0, 1, 2
+def init(state, x):
+    gamma = state.problem_data['gamma']
+    rho = 1.
+    V = 1./rho
+    p = 1./gamma
+    u = 0.
+    eps = V*p/(gamma-1)+0.5*u**2
 
-    state.q[density ,:] = 1.
-    state.q[momentum,:] = 0.
-    state.q[energy  ,:] = ( (x<0.1)*1.e3 + (0.1<=x)*(x<0.9)*1.e-2 + (0.9<=x)*1.e2 ) / (gamma - 1.)
+    state.q[0 ,:] = V
+    state.q[1,:] = u
+    state.q[2,:] = eps
 
+def piston_bc(state,dim,t,qbc,auxbc,num_ghost):
+    """Initial pulse generated at left boundary by prescribed motion"""
+    M=1.
+    if dim.on_lower_boundary:
+        qbc[0,:num_ghost] = qbc[0,num_ghost]
+        qbc[1,:num_ghost] = qbc[1,num_ghost]
+        qbc[2,:num_ghost] = qbc[2,num_ghost]
+        t = state.t; gamma = state.problem_data['gamma']#t1=state.problem_data['t1']; 
+        xi = state.grid.x.centers; 
+        deltaxi = xi[1]-xi[0]
+        [V1,u1,eps1] = state.q[:,0]
+        p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
+        p0 = p1 - M*np.cos(t*deltaxi)
+        u0 = -2*M*np.sin(t) - u1
+        deltap = (p1-p0)/(p1+p0)
+        V0 = V1*(gamma +deltap)/(gamma-deltap)
+        eps0 = V0*p0/(gamma-1)+0.5*u0**2
+        #if abs(t0)<=1.: vwall = -a1*(1.+np.cos(t0*np.pi))
+        #else: vwall=0.
+        for ibc in range(num_ghost-1):
+            #qbc[1,num_ghost-ibc-1] = -2*M*np.sin(t)-state.q[1,0]
+            #qbc[1,num_ghost-ibc-1] = 2*vwall*state.aux[1,ibc] - qbc[1,num_ghost+ibc]
+            qbc[0,num_ghost-ibc-1] = V0
+            qbc[1,num_ghost-ibc-1] = u0
+            qbc[2,num_ghost-ibc-1] = eps0
 #--------------------------
 def setplot(plotdata):
 #--------------------------
@@ -139,7 +169,7 @@ def setplot(plotdata):
     plotaxes.title = 'u'
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
-    plotitem.plot_var = 2#energy
+    plotitem.plot_var = 1#energy
     plotitem.kwargs = {'linewidth':3}
     
     return plotdata

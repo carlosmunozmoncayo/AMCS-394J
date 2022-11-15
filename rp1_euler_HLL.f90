@@ -42,13 +42,13 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !local vectors of conserved quantities
         q_l = qr(:,i-1)
         q_r = ql(:,i  )
-        ! New variables 
+        ! Specific volume 1 over density
         Vl = q_l(1) 
         Vr = q_r(1)
         ! Velocity
         ul = q_l(2)
         ur = q_r(2)
-        ! New variable (epsilon) 
+        ! Energy over density (epsilon) 
         epsl = q_l(3)
         epsr = q_r(3)  
         !Pressure
