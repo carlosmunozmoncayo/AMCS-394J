@@ -41,10 +41,14 @@ from clawpack import riemann
 import numpy as np
 #from clawpack.riemann.euler_with_efix_1D_constants import *
 import euler_HLL_1D
+import euler_burgers_HLL_1D
 
 gamma = 1.4 # Ratio of specific heats
 
-def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50, nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2):#tfluct_solver=True):
+def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
+          kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50,
+          nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
+          x_switch_RS=1e+4, euler_burgers=False):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -54,7 +58,11 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_lang
     if kernel_language =='Python':
         rs = riemann.euler_1D_py.euler_roe_1D
     elif kernel_language =='Fortran':
-        rs = euler_HLL_1D#riemann.euler_with_efix_1D
+        #rs = euler_HLL_1D
+        if euler_burgers:
+            rs = euler_burgers_HLL_1D
+        else:
+            rs = euler_HLL_1D
 
     if solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(rs)
@@ -93,6 +101,34 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_lang
     xupper = xmax
 
     solver.kernel_language = kernel_language
+    
+    #solver.before_step = b4step
+
+    #mx = 800;
+    x = pyclaw.Dimension(xlower,xupper,mx,name='x')
+    domain = pyclaw.Domain([x])
+    state = pyclaw.State(domain,num_eqn,2)
+    state.problem_data['gamma'] = gamma
+    #state.problem_data['switch'] = x_switch_RS
+    
+    #################################################
+    #Defining before step function
+    #################################################
+    def b4step(solver,state):
+        #Copying density and pressure from last cell of Euler equations
+        x = state.aux[0]
+        i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
+        V0, u0, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
+        p0 = (gamma-1)*(eps0-0.5*u0**2)/V0
+
+        u = state.q[1,i:]
+
+        state.q[0,i:] = V0
+        state.q[2,i:] = p0*V0/(gamma-1.)+0.5*u**2
+    #################################################
+
+    if euler_burgers:
+        solver.before_step = b4step
 
     ###########################################
     #Defining custom BC. 
@@ -125,24 +161,16 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_lang
     solver.bc_lower[0] = pyclaw.BC.custom
     solver.user_bc_lower = piston_bc
     solver.bc_upper[0] = pyclaw.BC.extrap
+    solver.aux_bc_lower[0] = pyclaw.BC.extrap
+    solver.aux_bc_upper[0] = pyclaw.BC.extrap
 
     solver.num_waves = num_waves
     solver.num_eqn = num_eqn
 
-    #solver.before_step = b4step
-
-    #mx = 800;
-    x = pyclaw.Dimension(xlower,xupper,mx,name='x')
-    domain = pyclaw.Domain([x])
-    state = pyclaw.State(domain,num_eqn)
-
-    state.problem_data['gamma'] = gamma
-
     x = state.grid.x.centers
     
-
     #Set initial conditions
-    init(state,x)
+    init(state,x,x_switch_RS)
     claw = pyclaw.Controller()
     claw.tfinal = tfinal
     claw.solution = pyclaw.Solution(state,domain)
@@ -154,8 +182,9 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_lang
 
     return claw
 
-def init(state, x):
+def init(state, x, x_switch_RS):
     gamma = state.problem_data['gamma']
+    #x_switch_RS = state.problem_data['switch']
     rho = 1.
     V = 1./rho
     p = 1./gamma
@@ -165,6 +194,9 @@ def init(state, x):
     state.q[0 ,:] = V
     state.q[1,:] = u
     state.q[2,:] = eps
+
+    state.aux[0,:] = x
+    state.aux[1,:] = x_switch_RS
 
 
 
