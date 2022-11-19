@@ -44,8 +44,7 @@ import euler_HLL_1D
 
 gamma = 1.4 # Ratio of specific heats
 
-def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_language='Fortran',
-          mx=10000, tfinal= 20, nout=10):#tfluct_solver=True):
+def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50, nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -59,17 +58,31 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
 
     if solver_type=='sharpclaw':
         solver = pyclaw.SharpClawSolver1D(rs)
-        solver.lim_type = 1
+        solver.lim_type = limiting
         #solver.time_integrator = 'SSPLMM32'# 'SSP33'
-        solver.cfl_max = 2.5
-        #solver.cfl_desired = 0.8
+        solver.cfl_max = 0.9
+        if time_integrator == 'Heun':
+            a = np.array([[0.,0.],[1.,0.]])
+            b = np.array([0.5,0.5])
+            c = np.array([0.,1.])
+            
+            #a = np.array([[0.,0.],[2./3.,0.]])
+            #b = np.array([1./4.,3./4.])
+            #c = np.array([0.,2./3.])
+
+            solver.time_integrator = 'RK'
+            solver.a, solver.b, solver.c = a, b, c
+        solver.cfl_desired = CFL
+        solver.limiters = 1# minmod limiter pyclaw.limiters.tvd.minmod
+        solver.max_steps = 5000000
         
     elif solver_type=='classic':
         solver = pyclaw.ClawSolver1D(rs)
         solver.order =2
-        #solver.limiters = 4
-        #solver.cfl_max = 0.9
-        #solver.cfl_desired =0.8
+        solver.limiters = pyclaw.limiters.tvd.minmod
+        solver.cfl_max = 0.9
+        solver.cfl_desired =CFL
+        solver.max_steps = 5000000
     
     #Number of equations and waves
     num_eqn = 3
@@ -77,9 +90,37 @@ def setup(use_petsc=False,outdir='./_output',solver_type='classic',kernel_langua
     
     #Spatial domain
     xlower = 0.0
-    xupper = 200.0
+    xupper = xmax
 
     solver.kernel_language = kernel_language
+
+    ###########################################
+    #Defining custom BC. 
+    #It is convenient to define it here to pass M to setup
+    ###########################################
+    def piston_bc(state,dim,t,qbc,auxbc,num_ghost):
+    #"""Initial pulse generated at left boundary by prescribed motion"""
+        if dim.on_lower_boundary:
+            qbc[0,:num_ghost] = qbc[0,num_ghost]
+            qbc[1,:num_ghost] = qbc[1,num_ghost]
+            qbc[2,:num_ghost] = qbc[2,num_ghost]
+            t = state.t; gamma = state.problem_data['gamma']
+            xi = state.grid.x.centers; 
+            deltaxi = xi[1]-xi[0]
+            [V1,u1,eps1] = state.q[:,0]
+            p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
+            p0 = p1 - M*np.cos(t)*deltaxi
+            u0 = -2*M*np.sin(t) - u1
+            deltap = (p1-p0)/(p1+p0)
+            V0 = V1*(gamma +deltap)/(gamma-deltap)
+            eps0 = V0*p0/(gamma-1)+0.5*u0**2
+            
+            for ibc in range(num_ghost-1):
+                qbc[0,num_ghost-ibc-1] = V0
+                qbc[1,num_ghost-ibc-1] = u0
+                qbc[2,num_ghost-ibc-1] = eps0
+    ###########################################
+    ###########################################
 
     solver.bc_lower[0] = pyclaw.BC.custom
     solver.user_bc_lower = piston_bc
@@ -125,49 +166,7 @@ def init(state, x):
     state.q[1,:] = u
     state.q[2,:] = eps
 
-def piston_bc(state,dim,t,qbc,auxbc,num_ghost):
-    """Initial pulse generated at left boundary by prescribed motion"""
-    M=1.5
-    if dim.on_lower_boundary:
-        qbc[0,:num_ghost] = qbc[0,num_ghost]
-        qbc[1,:num_ghost] = qbc[1,num_ghost]
-        qbc[2,:num_ghost] = qbc[2,num_ghost]
-        t = state.t; gamma = state.problem_data['gamma']#t1=state.problem_data['t1']; 
-        xi = state.grid.x.centers; 
-        deltaxi = xi[1]-xi[0]
-        [V1,u1,eps1] = state.q[:,0]
-        p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
-        p0 = p1 - M*np.cos(t)*deltaxi
-        u0 = -2*M*np.sin(t) - u1
-        deltap = (p1-p0)/(p1+p0)
-        V0 = V1*(gamma +deltap)/(gamma-deltap)
-        eps0 = V0*p0/(gamma-1)+0.5*u0**2
-        
-        for ibc in range(num_ghost-1):
-            #qbc[1,num_ghost-ibc-1] = -2*M*np.sin(t)-state.q[1,0]
-            #qbc[1,num_ghost-ibc-1] = 2*vwall*state.aux[1,ibc] - qbc[1,num_ghost+ibc]
-            qbc[0,num_ghost-ibc-1] = V0
-            qbc[1,num_ghost-ibc-1] = u0
-            qbc[2,num_ghost-ibc-1] = eps0
 
-def b4step(solver,state):
-    #Retrieving data
-    M=1.5
-    t = state.t 
-    gamma = state.problem_data['gamma']#t1=state.problem_data['t1']; 
-    xi = state.grid.x.centers; 
-    deltaxi = xi[1]-xi[0]
-    [V1,u1,eps1] = state.q[:,1]
-    p1 = (gamma-1.)*(eps1-0.5*u1**2)/V1
-    p0 = p1 - M*np.cos(t*deltaxi)
-    u0 = -2*M*np.sin(t) - u1
-    deltap = (p1-p0)/(p1+p0)
-    V0 = V1*(gamma +deltap)/(gamma-deltap)
-    eps0 = V0*p0/(gamma-1)+0.5*u0**2
-
-    state.q[0,0] = V0
-    state.q[1,0] = u0
-    state.q[2,0] = eps0
 
 
 #--------------------------
@@ -179,7 +178,7 @@ def setplot(plotdata):
     Output: a modified version of plotdata.
     """ 
     plotdata.clearfigures()  # clear any old figures,axes,items data
-    xmin, xmax = 0., 120.
+    xmin, xmax = 0., 400.
     plotfigure = plotdata.new_plotfigure(name='', figno=0)
 
     plotaxes = plotfigure.new_plotaxes()
@@ -189,7 +188,7 @@ def setplot(plotdata):
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
     plotitem.plot_var = 0#density
-    plotitem.kwargs = {'linewidth':3}
+    plotitem.kwargs = {'linewidth':1}
     
     plotaxes = plotfigure.new_plotaxes()
     plotaxes.axescmd = 'subplot(212)'
@@ -199,7 +198,7 @@ def setplot(plotdata):
 
     plotitem = plotaxes.new_plotitem(plot_type='1d')
     plotitem.plot_var = 1#energy
-    plotitem.kwargs = {'linewidth':3}
+    plotitem.kwargs = {'linewidth':1}
     
     return plotdata
 

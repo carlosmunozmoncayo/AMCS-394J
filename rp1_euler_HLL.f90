@@ -73,26 +73,17 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !Middle state HLL
         q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
         !Defining waves for Clawpack
-        do m=1,3
-            wave(m,1,i) = q_m(m)-q_l(m)
-            wave(m,2,i) = q_r(m)-q_m(m)
-        end do
+        !do m=1,3
+        !    wave(m,1,i) = q_m(m)-q_l(m)
+        !    wave(m,2,i) = q_r(m)-q_m(m)
+        !end do
 
-        !wave(:,1,i) = q_m-q_l
-        !wave(:,2,i) = q_r-q_m
+        wave(:,1,i) = q_m-q_l
+        wave(:,2,i) = q_r-q_m
         !Defining speeds for Clawpack
         s(1,i) = s1
         s(2,i) = s2
-       !wave(1,1,i) = rho_m - qr(1,i-1)
-       !wave(2,1,i) = rhou_m - qr(2,i-1)
-       !wave(3,1,i) = E_m - qr(3,i-1)
-       !s(1,i) = s1
-    
-       !wave(1,2,i) = ql(1,i) - rho_m
-       !wave(2,2,i) = ql(2,i) - rhou_m
-       !wave(3,2,i) = ql(3,i) - E_m
-       !s(2,i) = s2
-
+       
     end do 
 
     do m=1,3
