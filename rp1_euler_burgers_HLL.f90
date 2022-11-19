@@ -32,11 +32,15 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     double precision, dimension(3) :: q_l, q_r, q_m !Local vectors of conserved quantities
     double precision, dimension(3) :: fql, fqr
     integer :: m, i, mw
+    double precision :: x_switch_RS
+    double precision :: p0, V0, fpl, fpr, a0
 
 
-    common /cparam/  gamma
+    common /cparam/  gamma, x_switch_RS 
 
     gamma1 = gamma - 1.d0
+
+
 
     do i=2-mbc,mx+mbc
         !local vectors of conserved quantities
@@ -54,35 +58,54 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !Pressure
         pl = gamma1*(epsl-0.5d0*ul**2)/Vl
         pr = gamma1*(epsr-0.5d0*ur**2)/Vr
-        !Flux at left and right states
-        fql(1) = -ul
-        fql(2) = pl
-        fql(3) = ul*pl
-        fqr(1) = -ur
-        fqr(2) = pr
-        fqr(3) = ur*pr
 
-        !fql = (/ -ul, pl, ul*pl /)
-        !fqr = (/ -ur, pr, ur*pr /)
-        !Smaller and larger eigenvales evaluated at left and right states
-        dl = dsqrt(pl/Vl)
-        dr = dsqrt(pr/Vr)
-        !Defining some simple HLL speeds (neglecting contact discontinuity)
-        s1 = -max(dl,dr)
-        s2 = max(dl,dr)
-        !Middle state HLL
-        q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
-        !Defining waves for Clawpack
-        !do m=1,3
-        !    wave(m,1,i) = q_m(m)-q_l(m)
-        !    wave(m,2,i) = q_r(m)-q_m(m)
-        !end do
+        if (auxr(1,i-1) <= x_switch_RS) then
+            !!!!!!!!!!!!!!!
+            !Solve the full Euler equations in Lagrangian coordinates
+            !!!!!!!!!!!!!!
 
-        wave(:,1,i) = q_m-q_l
-        wave(:,2,i) = q_r-q_m
-        !Defining speeds for Clawpack
-        s(1,i) = s1
-        s(2,i) = s2
+            !Flux at left and right states
+            fql(1) = -ul
+            fql(2) = pl
+            fql(3) = ul*pl
+            fqr(1) = -ur
+            fqr(2) = pr
+            fqr(3) = ur*pr
+            !Smaller and larger eigenvales evaluated at left and right states
+            dl = dsqrt(pl/Vl)
+            dr = dsqrt(pr/Vr)
+            !Defining some simple HLL speeds (neglecting contact discontinuity)
+            s1 = -max(dl,dr)
+            s2 = max(dl,dr)
+            !Middle state HLL
+            q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
+        else
+            !!!!!!!!!!!!!!!!
+            !Solve Burger's equations
+            !Since we require constant density and pressure we take the ones from the left state
+            !!!!!!!!!!!!!!!!
+            p0 = pl
+            V0 = Vl
+            a0 = dsqrt(gamma*p0*V0)
+            !Derivative of Burger's flux at left and right states
+            fpl = dsqrt(gamma*p0/V0)*(1.d0+0.5d0*gamma1*ul/a0)**((gamma+1.d0)/gamma1)
+            fpr = dsqrt(gamma*p0/V0)*(1.d0+0.5d0*gamma1*ur/a0)**((gamma+1.d0)/gamma1)
+            !For this problem we have a single wave, so we just need one speed  
+            if (abs(fpl)>abs(fpr)) then
+                s2 = fpl
+            else
+                s2 = fpr
+            end if
+            !In this case the left wave will propagate no information
+            s1 = 0.d0
+            q_m = q_l 
+        end if
+
+            wave(:,1,i) = q_m-q_l
+            wave(:,2,i) = q_r-q_m
+            !Defining speeds for Clawpack
+            s(1,i) = s1
+            s(2,i) = s2
        
     end do 
 
