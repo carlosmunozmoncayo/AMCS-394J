@@ -18,6 +18,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     integer, intent(in) :: maxmx, meqn, mwaves, mbc, mx, maux
     double precision, dimension(meqn,1-mbc:maxmx+mbc), intent(in) :: ql, qr
     double precision, dimension(maux,1-mbc:maxmx+mbc), intent(in) :: auxl, auxr
+    !integer, dimension(maux,1-mbc:maxmx+mbc), intent(in) :: auxl, auxr
     double precision, dimension(meqn, mwaves, 1-mbc:maxmx+mbc), intent(out) :: wave
     double precision, dimension(meqn, 1-mbc:maxmx+mbc), intent(out) :: amdq, apdq
     double precision, dimension(mwaves, 1-mbc:maxmx+mbc), intent(out) :: s
@@ -59,7 +60,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         pl = gamma1*(epsl-0.5d0*ul**2)/Vl
         pr = gamma1*(epsr-0.5d0*ur**2)/Vr
 
-        switch = auxr(2,i-1)
+        switch = auxr(1,i-1)
         !Flux at left and right states
         fql(1) = -ul
         fql(2) = pl
@@ -68,7 +69,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         fqr(2) = pr
         fqr(3) = ur*pr
 
-        if (auxr(1,i-1) >= switch) then
+        if (switch < 0.5 ) then
             !!!!!!!!!!!!!!!
             !Solve the full Euler equations in Lagrangian coordinates
             !!!!!!!!!!!!!!

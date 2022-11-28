@@ -32,6 +32,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     double precision :: s1, s2
     double precision, dimension(3) :: q_l, q_r, q_m !Local vectors of conserved quantities
     double precision, dimension(3) :: fql, fqr
+    double precision :: switch
     integer :: m, i, mw
 
 
@@ -40,6 +41,8 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     gamma1 = gamma - 1.d0
 
     do i=2-mbc,mx+mbc
+        !Criteria to choose wheter to slow down waves or not
+        switch = auxr(1,i-1)
         !local vectors of conserved quantities
         q_l = qr(:,i-1)
         q_r = ql(:,i  )
@@ -69,8 +72,14 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         dl = dsqrt(pl/Vl)
         dr = dsqrt(pr/Vr)
         !Defining some simple HLL speeds (neglecting contact discontinuity)
-        s1 = -max(dl,dr)
+        s1 = -max(dl,dr) 
         s2 = max(dl,dr)
+        !Slowing down if necessary
+        !if (switch > 0.5) then
+        !    s2 = 0.4*max(dl,dr)
+        !else
+        !    s2 = max(dl,dr)
+        !end if
         !Middle state HLL
         q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
         !Defining waves for Clawpack
@@ -78,12 +87,18 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !    wave(m,1,i) = q_m(m)-q_l(m)
         !    wave(m,2,i) = q_r(m)-q_m(m)
         !end do
-
+        
         wave(:,1,i) = q_m-q_l
         wave(:,2,i) = q_r-q_m
         !Defining speeds for Clawpack
         s(1,i) = s1
         s(2,i) = s2
+        
+        !Slowing down and vanishing right going waves
+        if (switch > 0.5) then
+            s(2,i) = 0.5*s(2,i)
+            !wave(:,2,i) = 0.5*wave(:,2,i)
+        end if
        
     end do 
 

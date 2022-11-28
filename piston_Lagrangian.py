@@ -42,13 +42,14 @@ import numpy as np
 #from clawpack.riemann.euler_with_efix_1D_constants import *
 import euler_HLL_1D
 import euler_burgers_HLL_1D
+import euler_HLL_slowing_1D
 
 gamma = 1.4 # Ratio of specific heats
 
 def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
           kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50,
           nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
-          x_switch_RS=1e+4, euler_burgers=False):#tfluct_solver=True):
+          x0_switch_RS=1e+4, euler_RS=False):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -59,8 +60,10 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         rs = riemann.euler_1D_py.euler_roe_1D
     elif kernel_language =='Fortran':
         #rs = euler_HLL_1D
-        if euler_burgers:
+        if euler_RS == 'euler_burger':
             rs = euler_burgers_HLL_1D
+        elif euler_RS == 'euler_slowing':
+            rs = euler_HLL_slowing_1D
         else:
             rs = euler_HLL_1D
 
@@ -107,7 +110,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     #mx = 800;
     x = pyclaw.Dimension(xlower,xupper,mx,name='x')
     domain = pyclaw.Domain([x])
-    state = pyclaw.State(domain,num_eqn,2)
+    state = pyclaw.State(domain,num_eqn,1)
     state.problem_data['gamma'] = gamma
     #state.problem_data['switch'] = x_switch_RS
     
@@ -127,8 +130,8 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         state.q[2,i:] = p0*V0/(gamma-1.)+0.5*u**2
     #################################################
 
-    if euler_burgers:
-        solver.before_step = b4step
+    #if euler_burgers:
+    #    solver.before_step = b4step
 
     ###########################################
     #Defining custom BC. 
@@ -168,9 +171,13 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     solver.num_eqn = num_eqn
 
     x = state.grid.x.centers
+
+    #Defining the region where we are going to switch (either to simple waves or start slowing down waves)
+    #The cells where x_switch_RS is 1 will use the modified RS.
+    x_switch_RS = np.where(x<x0_switch_RS,0,1).astype(dtype=int) 
     
     #Set initial conditions
-    init(state,x,x_switch_RS)
+    init(state,x_switch_RS)
     claw = pyclaw.Controller()
     claw.tfinal = tfinal
     claw.solution = pyclaw.Solution(state,domain)
@@ -182,7 +189,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
 
     return claw
 
-def init(state, x, x_switch_RS):
+def init(state, x_switch_RS):
     gamma = state.problem_data['gamma']
     #x_switch_RS = state.problem_data['switch']
     rho = 1.
@@ -195,8 +202,8 @@ def init(state, x, x_switch_RS):
     state.q[1,:] = u
     state.q[2,:] = eps
 
-    state.aux[0,:] = x
-    state.aux[1,:] = x_switch_RS
+    #state.aux[0,:] = x
+    state.aux[0,:] = x_switch_RS
 
 
 
