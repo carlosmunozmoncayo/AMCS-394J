@@ -43,13 +43,14 @@ import numpy as np
 import euler_HLL_1D
 import euler_burgers_HLL_1D
 import euler_HLL_slowing_1D
+import euler_HLL_slowing_damping_1D
 
 gamma = 1.4 # Ratio of specific heats
 
 def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
           kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50,
           nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
-          start_slowing=1e+4, stop_slowing=1e+5, #For Smadar Karni's approach
+          start_slowing=1e+4, stop_slowing=1e+5, damping_rate=20, #For Smadar Karni's approach
           x0_switch_RS=1e+4, #For switching to Burger's simple wave solution
           euler_RS='euler'):#tfluct_solver=True):
 
@@ -66,6 +67,8 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
             rs = euler_burgers_HLL_1D
         elif euler_RS == 'euler_slowing':
             rs = euler_HLL_slowing_1D
+        elif euler_RS == 'euler_slowing_damping':
+            rs = euler_HLL_slowing_damping_1D
         elif euler_RS == 'euler':
             rs = euler_HLL_1D
 
@@ -109,10 +112,9 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     
     #solver.before_step = b4step
 
-    #mx = 800;
     x = pyclaw.Dimension(xlower,xupper,mx,name='x')
     domain = pyclaw.Domain([x])
-    state = pyclaw.State(domain,num_eqn,1)
+    state = pyclaw.State(domain,num_eqn,2)
     state.problem_data['gamma'] = gamma
     #state.problem_data['switch'] = x_switch_RS
     
@@ -174,21 +176,24 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
 
     x = state.grid.x.centers
 
-    #Defining the region where we are going to switch (either to simple waves or start slowing down waves)
-    #The cells where x_switch_RS is 1 will use the modified RS.
+    
+    
     
     if euler_RS == 'euler_burger':
         #Switching to burger's equation after certain point
-        x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)    
-    elif euler_RS == 'euler_slowing':
+        #The cells where x_switch_RS is 1 will use the modified RS.
+        x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)
+    elif euler_RS == 'euler_slowing' or euler_RS == 'euler_slowing_damping':
         #Slowing down waves gradually (with an affine function)
         x_switch_RS = affine_filter(x=x,a=start_slowing,b=stop_slowing)
     else:
         x_switch_RS =np.zeros(len(x)).astype(dtype=int)
-
+    #Damping right going waves (passed to the RS but not used if Smadar Karni's mthod is not used)
+    #i.e. just used in the slowing_damping RS for instance
+    exp_decay = np.exp(damping_rate*np.minimum((start_slowing-x)/(stop_slowing-start_slowing),0.))
     
     #Set initial conditions
-    init(state,x_switch_RS)
+    init(state,x_switch_RS,exp_decay)
     claw = pyclaw.Controller()
     claw.tfinal = tfinal
     claw.solution = pyclaw.Solution(state,domain)
@@ -200,7 +205,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
 
     return claw
 
-def init(state, x_switch_RS):
+def init(state, x_switch_RS, exp_decay):
     gamma = state.problem_data['gamma']
     #x_switch_RS = state.problem_data['switch']
     rho = 1.
@@ -215,6 +220,7 @@ def init(state, x_switch_RS):
 
     #state.aux[0,:] = x
     state.aux[0,:] = x_switch_RS
+    state.aux[1,:] = exp_decay
 
 def affine_filter(x,a,b):
         #Defining relaxation zone
