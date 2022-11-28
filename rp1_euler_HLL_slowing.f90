@@ -74,12 +74,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !Defining some simple HLL speeds (neglecting contact discontinuity)
         s1 = -max(dl,dr) 
         s2 = max(dl,dr)
-        !Slowing down if necessary
-        !if (switch > 0.5) then
-        !    s2 = 0.4*max(dl,dr)
-        !else
-        !    s2 = max(dl,dr)
-        !end if
+        
         !Middle state HLL
         q_m = (1.d0/(s1-s2))*(fqr-fql-s2*q_r+s1*q_l)
         !Defining waves for Clawpack
@@ -92,13 +87,15 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         wave(:,2,i) = q_r-q_m
         !Defining speeds for Clawpack
         s(1,i) = s1
-        s(2,i) = s2
+
+        !Slowing down right going wave acdording to spatial parameter
+        s(2,i) = switch*s2
         
         !Slowing down and vanishing right going waves
-        if (switch > 0.5) then
-            s(2,i) = 0.5*s(2,i)
+        !if (switch > 0.5) then
+        !    s(2,i) = 0.5*s(2,i)
             !wave(:,2,i) = 0.5*wave(:,2,i)
-        end if
+        !end if
        
     end do 
 

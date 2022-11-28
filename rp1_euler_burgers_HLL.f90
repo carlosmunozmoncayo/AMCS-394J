@@ -69,7 +69,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         fqr(2) = pr
         fqr(3) = ur*pr
 
-        if (switch < 0.5 ) then
+        if (switch > 0 ) then
             !!!!!!!!!!!!!!!
             !Solve the full Euler equations in Lagrangian coordinates
             !!!!!!!!!!!!!!

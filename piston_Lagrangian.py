@@ -49,7 +49,9 @@ gamma = 1.4 # Ratio of specific heats
 def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
           kernel_language='Fortran',time_integrator='Heun',mx=10000, tfinal= 50,
           nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
-          x0_switch_RS=1e+4, euler_RS=False):#tfluct_solver=True):
+          start_slowing=1e+4, stop_slowing=1e+5, #For Smadar Karni's approach
+          x0_switch_RS=1e+4, #For switching to Burger's simple wave solution
+          euler_RS='euler'):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -64,7 +66,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
             rs = euler_burgers_HLL_1D
         elif euler_RS == 'euler_slowing':
             rs = euler_HLL_slowing_1D
-        else:
+        elif euler_RS == 'euler':
             rs = euler_HLL_1D
 
     if solver_type=='sharpclaw':
@@ -174,7 +176,16 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
 
     #Defining the region where we are going to switch (either to simple waves or start slowing down waves)
     #The cells where x_switch_RS is 1 will use the modified RS.
-    x_switch_RS = np.where(x<x0_switch_RS,0,1).astype(dtype=int) 
+    
+    if euler_RS == 'euler_burger':
+        #Switching to burger's equation after certain point
+        x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)    
+    elif euler_RS == 'euler_slowing':
+        #Slowing down waves gradually (with an affine function)
+        x_switch_RS = affine_filter(x=x,a=start_slowing,b=stop_slowing)
+    else:
+        x_switch_RS =np.zeros(len(x)).astype(dtype=int)
+
     
     #Set initial conditions
     init(state,x_switch_RS)
@@ -204,6 +215,14 @@ def init(state, x_switch_RS):
 
     #state.aux[0,:] = x
     state.aux[0,:] = x_switch_RS
+
+def affine_filter(x,a,b):
+        #Defining relaxation zone
+        #Generates an affine function equal to 1 for x<=a and equal to 0 for x>b
+        Lrelax = b-a
+        di = x-b #distance of points from relaxation zone's origin 
+        mi = np.abs(di)/Lrelax #slope of filter in relaxation zone
+        return (mi*(mi<=1)+(mi>1))*(di<=0)
 
 
 
