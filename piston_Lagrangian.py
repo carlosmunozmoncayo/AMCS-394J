@@ -188,10 +188,13 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         x_switch_RS = affine_filter(x=x,a=start_slowing,b=stop_slowing)
     else:
         x_switch_RS =np.zeros(len(x)).astype(dtype=int)
-    #Damping right going waves (passed to the RS but not used if Smadar Karni's mthod is not used)
-    #i.e. just used in the slowing_damping RS for instance
-    exp_decay = np.exp(damping_rate*np.minimum((start_slowing-x)/(stop_slowing-start_slowing),0.))
     
+    #Damping right going waves (passed to the RS but not used if Smadar Karni's mthod is not used)
+    #Just used in the slowing_damping RS for instance
+    #exp_decay = np.exp(damping_rate*np.minimum((start_slowing-x)/(stop_slowing-start_slowing),0.))
+    exp_decay = np.where(x>start_slowing, np.exp(damping_rate*(start_slowing-x)), 1.) 
+
+
     #Set initial conditions
     init(state,x_switch_RS,exp_decay)
     claw = pyclaw.Controller()
