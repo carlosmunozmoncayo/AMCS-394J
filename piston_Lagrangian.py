@@ -52,7 +52,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
           nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
           start_slowing=1e+4, stop_slowing=1e+5, damping_rate=20, #For Smadar Karni's approach
           x0_switch_RS=1e+4, #For switching to Burger's simple wave solution
-          euler_RS='euler'):#tfluct_solver=True):
+          euler_RS='euler', damping=False):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -91,6 +91,8 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         solver.cfl_desired = CFL
         solver.limiters = 1# minmod limiter pyclaw.limiters.tvd.minmod
         solver.max_steps = 5000000
+        if damping:
+            solver.dq_src = sharpclaw_source_step_damping
         
     elif solver_type=='classic':
         solver = pyclaw.ClawSolver1D(rs)
@@ -119,10 +121,23 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     #state.problem_data['switch'] = x_switch_RS
     
     #################################################
-    #Defining before step function
+    #Defining before step functions
     #################################################
-    def b4step(solver,state):
+    def b4step_burgers(solver,state):
         #Copying density and pressure from last cell of Euler equations
+        x = state.aux[0]
+        i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
+        V0, u0, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
+        p0 = (gamma-1)*(eps0-0.5*u0**2)/V0
+
+        u = state.q[1,i:]
+
+        state.q[0,i:] = V0
+        state.q[2,i:] = p0*V0/(gamma-1.)+0.5*u**2
+
+    def b4step_absorbing_BC(solver,state):
+        # Absorbing (or generating) BC as in Escalante's paper
+        #Not working yet (not even implemented yet lol)
         x = state.aux[0]
         i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
         V0, u0, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
@@ -192,7 +207,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     #Damping right going waves (passed to the RS but not used if Smadar Karni's mthod is not used)
     #Just used in the slowing_damping RS for instance
     #exp_decay = np.exp(damping_rate*np.minimum((start_slowing-x)/(stop_slowing-start_slowing),0.))
-    exp_decay = np.where(x>start_slowing, np.exp(damping_rate*(start_slowing-x)), 1.) 
+    exp_decay = np.where(x>start_slowing, damping_rate*(1.-affine_filter(x=x,a=start_slowing,b=stop_slowing)), 1.) 
 
 
     #Set initial conditions
@@ -233,6 +248,57 @@ def affine_filter(x,a,b):
         mi = np.abs(di)/Lrelax #slope of filter in relaxation zone
         return (mi*(mi<=1)+(mi>1))*(di<=0)
 
+def sharpclaw_source_step_damping(solver,state,dt):
+    #Time integration of the system W_t+ D W = 0
+    #Intended to be used in an operator (Godunov) splitting context
+    #where D is given by eq. (29) of Karni's (1996)
+    q = state.q
+    xc = state.grid.x.centers
+
+    #Get parameters
+    gamma = state.problem_data['gamma']
+    exp_decay = state.aux[1]
+
+    #Get variables
+    V = q[0,:]
+    u = q[1,:]
+    eps = q[2,:]
+
+    #Defining some variables
+    p = (gamma-1.)*(eps-0.5*u**2)/V
+    pe = (gamma-1.)/V
+    pv = -p/V
+    C = np.sqrt(p*pe-pv)
+    
+    R = np.array([[1.+0*C, 1.+0*C, 1.+0*C],
+             [C,  0*C, -C],
+             [u*C, -pv/pe, -u*C-p]])
+    R = R.T
+
+    #R will be a list of the matrices R corresponding to each point
+    Delta = np.array([[-C, 0*C, 0*C],
+                  [0*C, 0*C, 0*C],
+                  [0*C, 0*C, exp_decay*C]])
+    Delta = Delta.T
+
+    #The same behavior as R
+    R_inv = np.array([[1./(2*V*pe+2.), (p*pe+C*u*pe-pv)/(2.*C*p*pe), -pe/(2*p*pe-2*pv)],
+             [V*pe/(V*pe+1.),  -u*pe/(p*pe-pv), pe/(p*pe-pv)],
+             [1./(2*pe*V+2.), (-p*pe+C*u*pe+pv)/(2*C*p*pe-2*C*pv), -pe/(2*p*pe-2*pv)]])
+
+    R_inv = R_inv.T
+    
+    dq = np.array([-R[i]@Delta[i]@R_inv[i]@q.T[i] for i in range(len(q.T))])
+    dq = dt*dq.T
+
+    
+   #dq = np.empty(q.shape)
+   #dq[0,:] = 0.
+   #dq[1,:] = 0.
+   #dq[2,:] = dt*gamma*p-dt*decayx*q[2,:]
+   #dq[3,:] = -2*dt*w*csq_space-dt*decayx*q[3,:]
+
+    return dq
 
 
 
