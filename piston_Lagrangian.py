@@ -52,7 +52,8 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
           nout=10, xmax=400, M=0.5, CFL=0.5, limiting=1, order=2,
           start_slowing=1e+4, stop_slowing=1e+5, damping_rate=20, #For Smadar Karni's approach
           x0_switch_RS=1e+4, #For switching to Burger's simple wave solution
-          euler_RS='euler', damping=False):#tfluct_solver=True):
+          euler_RS='euler', damping=False,
+          absorbing_BC=False):#tfluct_solver=True):
 
     if use_petsc:
         import clawpack.petclaw as pyclaw
@@ -92,7 +93,7 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         solver.limiters = 1# minmod limiter pyclaw.limiters.tvd.minmod
         solver.max_steps = 5000000
         if damping:
-            solver.dq_src = sharpclaw_source_step_damping
+            solver.dq_src = sharpclaw_source_step_damping_scalar
         
     elif solver_type=='classic':
         solver = pyclaw.ClawSolver1D(rs)
@@ -138,16 +139,24 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     def b4step_absorbing_BC(solver,state):
         # Absorbing (or generating) BC as in Escalante's paper
         #Not working yet (not even implemented yet lol)
-        x = state.aux[0]
-        i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
-        V0, u0, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
-        p0 = (gamma-1)*(eps0-0.5*u0**2)/V0
+        x = state.grid.x.centers
+        #i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
+        V, u, eps = state.q[0,:], state.q[1,:], state.q[2,:]
+        V_star = np.ones(len(V))
+        u_star = np.zeros(len(u))
+        eps_star = (1./(gamma*(gamma-1)))*np.ones(len(eps))
 
-        u = state.q[1,i:]
+        c = affine_filter(x=x,a=start_slowing,b=stop_slowing)
+        
+        state.q[0,:] = c*V+(1-c)*V_star
+        state.q[1,:] = c*u+(1-c)*u_star
+        state.q[2,:] = c*eps+(1-c)*eps_star
 
-        state.q[0,i:] = V0
-        state.q[2,i:] = p0*V0/(gamma-1.)+0.5*u**2
+
     #################################################
+
+    if absorbing_BC:
+        solver.before_step = b4step_absorbing_BC
 
     #if euler_burgers:
     #    solver.before_step = b4step
@@ -198,16 +207,21 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
         #Switching to burger's equation after certain point
         #The cells where x_switch_RS is 1 will use the modified RS.
         x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)
-    elif euler_RS == 'euler_slowing' or euler_RS == 'euler_slowing_damping':
+    
+    elif euler_RS == 'euler_slowing':
         #Slowing down waves gradually (with an affine function)
         x_switch_RS = affine_filter(x=x,a=start_slowing,b=stop_slowing)
     else:
         x_switch_RS =np.zeros(len(x)).astype(dtype=int)
-    
+
+    #if damping:
+    #    x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)
+
+   
     #Damping right going waves (passed to the RS but not used if Smadar Karni's mthod is not used)
     #Just used in the slowing_damping RS for instance
     #exp_decay = np.exp(damping_rate*np.minimum((start_slowing-x)/(stop_slowing-start_slowing),0.))
-    exp_decay = np.where(x>start_slowing, damping_rate*(1.-affine_filter(x=x,a=start_slowing,b=stop_slowing)), 1.) 
+    exp_decay = damping_rate+0.*x#damping_rate*(1.-affine_filter(x=x,a=start_slowing,b=stop_slowing))
 
 
     #Set initial conditions
@@ -257,6 +271,7 @@ def sharpclaw_source_step_damping(solver,state,dt):
 
     #Get parameters
     gamma = state.problem_data['gamma']
+    damping_flag = state.aux[0]
     exp_decay = state.aux[1]
 
     #Get variables
@@ -276,7 +291,7 @@ def sharpclaw_source_step_damping(solver,state,dt):
     R = R.T
 
     #R will be a list of the matrices R corresponding to each point
-    Delta = np.array([[-C, 0*C, 0*C],
+    Delta = np.array([[-0*C, 0*C, 0*C],
                   [0*C, 0*C, 0*C],
                   [0*C, 0*C, exp_decay*C]])
     Delta = Delta.T
@@ -290,16 +305,38 @@ def sharpclaw_source_step_damping(solver,state,dt):
     
     dq = np.array([-R[i]@Delta[i]@R_inv[i]@q.T[i] for i in range(len(q.T))])
     dq = dt*dq.T
-
-    
-   #dq = np.empty(q.shape)
-   #dq[0,:] = 0.
-   #dq[1,:] = 0.
-   #dq[2,:] = dt*gamma*p-dt*decayx*q[2,:]
-   #dq[3,:] = -2*dt*w*csq_space-dt*decayx*q[3,:]
+    dq = np.where(damping_flag<0.5,dq,0.)#np.where(np.isclose(damping_flag,1.), 0., dq)
+    dq[0,:] = 0.
+    dq[2,:] = 0.
 
     return dq
 
+def sharpclaw_source_step_damping_scalar(solver,state,dt):
+    #Time integration of the system W_t+ D W = 0
+    #Intended to be used in an operator (Godunov) splitting context
+    #where D is given by eq. (29) of Karni's (1996)
+    q = state.q
+    xc = state.grid.x.centers
+
+    #Get parameters
+    gamma = state.problem_data['gamma']
+    damping_flag = state.aux[0]
+    damping_rate = state.aux[1]
+
+    V = q[0,:]
+    u = q[1,:]
+    eps = q[2,:]
+
+    dq = np.empty(q.shape)
+
+    #This works 
+    dq[0,:] = -dt*np.where(V>1, damping_rate/(np.log(V)*V), 0.)#0.#dt*damping_rate*q[0,:]*(1-damping_flag)
+    dq[1,:] = -dt*damping_rate*q[1,:]*(1-damping_flag)#np.where(np.isclose(damping_flag,1), 0., dq)
+    dq[2,:] = 0.#-dt*damping_rate*q[2,:]*(1-damping_flag)
+
+    #This doesn't work
+    #dq = -dt*damping_rate*q*(1-damping_flag)
+    return dq
 
 
 #--------------------------
