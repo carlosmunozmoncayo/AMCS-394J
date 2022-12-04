@@ -2,11 +2,11 @@
 subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
 ! =========================================================
 
-! solve Riemann problems for the 1D Euler equations using the HLLE
-! approximate Riemann solver.
+! solve Riemann problems for the 1D Euler equations using Local Lax Friedrichs
+! scheme with
 
-! waves: 2
-! equations: 3
+! waves: 1
+! equations: 1
 
 ! Conserved quantities:
 !       1 V
@@ -34,7 +34,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     double precision, dimension(3) :: fql, fqr
     integer :: m, i, mw
     double precision :: switch
-    double precision :: p0, V0, fpl, fpr, a0
+    double precision :: p0, V0, a0, fpl, fpr,  al, ar, fl, fr
 
 
     common /cparam/  gamma
@@ -69,7 +69,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         fqr(2) = pr
         fqr(3) = ur*pr
 
-        if (switch > 0 ) then
+        if (switch > 0.5 ) then
             !!!!!!!!!!!!!!!
             !Solve the full Euler equations in Lagrangian coordinates
             !!!!!!!!!!!!!!
@@ -109,31 +109,36 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
             !Solve Burger's equations
             !Since we require constant density and pressure we take the ones from the left state
             !!!!!!!!!!!!!!!!
-            p0 = pl
-            V0 = Vl
-            a0 = dsqrt(gamma*p0*V0)
-            !Derivative of Burger's flux at left and right states
-            fpl = dsqrt(gamma*p0/V0)*(1.d0+0.5d0*gamma1*ul/a0)**((gamma+1.d0)/gamma1)
-            fpr = dsqrt(gamma*p0/V0)*(1.d0+0.5d0*gamma1*ur/a0)**((gamma+1.d0)/gamma1)
+            !p0 = pl
+            !V0 = Vl
+            al = dsqrt(gamma*pl*Vl)
+            ar = dsqrt(gamma*pr*Vr)
 
-            s2 = max(fpl,fpr)
+            !Burger's flux at left and right states
+            fl = pl*(1.d0+0.5d0*gamma1*ul/al)**(2.d0*gamma/gamma1) 
+            fr = pr*(1.d0+0.5d0*gamma1*ur/ar)**(2.d0*gamma/gamma1) 
+
+            !Derivative of Burger's flux at left and right states
+            fpl = dsqrt(gamma*pl/Vl)*(1.d0+0.5d0*gamma1*ul/al)**((gamma+1.d0)/gamma1)
+            fpr = dsqrt(gamma*pr/Vr)*(1.d0+0.5d0*gamma1*ur/ar)**((gamma+1.d0)/gamma1)
+
+            s2 = max(abs(fpl),abs(fpr))
             s1 = 0.d0 !We just need one wave to carry all the jump
             
             !Defining waves
             wave(:,1,i) = 0.d0
-            wave(:,2,i) = 0.d0
-            !wave(2,2,i) = ur-ul
             wave(:,2,i) = q_r-q_l !We need just one wave to carry the jump
 
             !Defining speeds for Clawpack
             s(1,i) = s1
             s(2,i) = s2
+            
+            amdq(:,i) = 0.d0
+            apdq(:,i) = 0.d0
 
-            do m=1,3
-                amdq(m,i) = 0.5d0*(fqr(m)-fql(m)-s2*(q_r(m)-q_l(m)))
-                apdq(m,i) = 0.5d0*(fqr(m)-fql(m)+s2*(q_r(m)-q_l(m)))
-            end do
-        
+            amdq(2,i) = 0.5d0*(fr-fl-s2*(ur-ul))
+            apdq(2,i) = 0.5d0*(fr-fl+s2*(ur-ul))
+
         end if
     end do 
 
