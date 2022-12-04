@@ -126,15 +126,24 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     #################################################
     def b4step_burgers(solver,state):
         #Copying density and pressure from last cell of Euler equations
-        x = state.aux[0]
-        i=np.max([j for j in range(len(x)) if x[j]<=x_switch_RS])
-        V0, u0, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
-        p0 = (gamma-1)*(eps0-0.5*u0**2)/V0
+        x_switch = state.aux[0,:]
 
-        u = state.q[1,i:]
+        #Retrieving data
+        V0, u, eps0 = state.q[0,i], state.q[1,i], state.q[2,i]
+        p0 = (gamma-1)*(eps0-0.5*u**2)/V0
+        eps0 = p0*V0/(gamma-1.)+0.5*u**2
+        a0 = np.sqrt(gamma*p0*V0)
 
-        state.q[0,i:] = V0
-        state.q[2,i:] = p0*V0/(gamma-1.)+0.5*u**2
+        #Reconstructing V, p, and eps
+        V = V0*(1+0.5*(gamma-1)*u/a0)**(2./(1.-gamma))
+        p = p0*(V/V0)**(-gamma)
+        eps = p*V/(gamma-1.)+0.5*u**2
+
+
+
+        #Substituting in the numerical solution
+        state.q[0,i:] = np.where(x_switch<0.5,V,V0)
+        state.q[2,i:] = np.where(x_switch<0.5,eps,eps0)
 
     def b4step_absorbing_BC(solver,state):
         # Absorbing (or generating) BC as in Escalante's paper
@@ -205,7 +214,8 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
     
     if euler_RS == 'euler_burger':
         #Switching to burger's equation after certain point
-        #The cells where x_switch_RS is 1 will use the modified RS.
+        #The cells where x_switch_RS is 1 will use HLL for Euler eqs.
+        #and in the rest we will use LLF for Burger eq.
         x_switch_RS = np.where(x<x0_switch_RS,1,0).astype(dtype=int)
     
     elif euler_RS == 'euler_slowing':
@@ -330,7 +340,7 @@ def sharpclaw_source_step_damping_scalar(solver,state,dt):
     dq = np.empty(q.shape)
 
     #This works 
-    dq[0,:] = -dt*np.where(V>1, damping_rate/(np.log(V)*V), 0.)#0.#dt*damping_rate*q[0,:]*(1-damping_flag)
+    dq[0,:] = 0.#-dt*np.where(V>1, damping_rate/(np.log(V)*V), 0.)#0.#dt*damping_rate*q[0,:]*(1-damping_flag)
     dq[1,:] = -dt*damping_rate*q[1,:]*(1-damping_flag)#np.where(np.isclose(damping_flag,1), 0., dq)
     dq[2,:] = 0.#-dt*damping_rate*q[2,:]*(1-damping_flag)
 
