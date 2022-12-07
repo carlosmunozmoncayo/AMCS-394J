@@ -31,31 +31,48 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
     double precision :: gamma, gamma1
     double precision :: s1, s2
     double precision, dimension(3) :: q_l, q_r, q_m !Local vectors of conserved quantities
-    double precision, dimension(3) :: fql, fqr
-    double precision :: switch, exp_decay
+    double precision, dimension(3) :: q_l_mod, q_r_mod !Local vectors of conserved quantities
+    double precision, dimension(3) :: fql, fqr, q0
+    double precision :: switch, V0, u0, eps0, p0
     integer :: m, i, mw
 
 
     common /cparam/  gamma
 
     gamma1 = gamma - 1.d0
+    V0 = 1.d0
+    u0 = 0.d0
+    p0 = 1.d0/gamma
+    eps0 = p0*V0/(gamma-1.d0)+0.5d0*u0**2
+
+    q0(1) = V0
+    q0(2) = u0
+    q0(3) = eps0
 
     do i=2-mbc,mx+mbc
         !Criteria to choose wheter to slow down waves or not
         switch = auxr(1,i-1)
-        exp_decay = auxr(2,i-1)
         !local vectors of conserved quantities
+        
+        !We retrieve all the conserved variables and translate them before evaluating them in everything,
+        !e.g., before evaluating them in p, f, and lambda
+
         q_l = qr(:,i-1)
         q_r = ql(:,i  )
+
+        q_l_mod = q_l+q0
+        q_r_mod = q_r+q0
+
+        
         ! Specific volume 1 over density
-        Vl = q_l(1) 
-        Vr = q_r(1)
+        Vl = q_l_mod(1) 
+        Vr = q_r_mod(1)
         ! Velocity
-        ul = q_l(2)
-        ur = q_r(2)
+        ul = q_l_mod(2)
+        ur = q_r_mod(2)
         ! Energy over density (epsilon) 
-        epsl = q_l(3)
-        epsr = q_r(3)  
+        epsl = q_l_mod(3)
+        epsr = q_r_mod(3)
         !Pressure
         pl = gamma1*(epsl-0.5d0*ul**2)/Vl
         pr = gamma1*(epsr-0.5d0*ur**2)/Vr
@@ -85,7 +102,7 @@ subroutine rp1(maxmx,meqn,mwaves,maux,mbc,mx,ql,qr,auxl,auxr,wave,s,amdq,apdq)
         !end do
         
         wave(:,1,i) = q_m-q_l
-        wave(:,2,i) = exp_decay*(q_r-q_m)
+        wave(:,2,i) = q_r-q_m
         !Defining speeds for Clawpack
         s(1,i) = s1
 
