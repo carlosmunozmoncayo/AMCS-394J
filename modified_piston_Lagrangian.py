@@ -44,7 +44,6 @@ import mod_euler_HLL_1D
 import euler_HLL_1D
 import euler_burgers_HLL_1D
 import euler_HLL_slowing_1D
-import euler_HLL_slowing_damping_1D
 
 gamma = 1.4 # Ratio of specific heats
 
@@ -165,9 +164,9 @@ def setup(use_petsc=False,outdir='./_output',solver_type='sharpclaw',
 
         c = affine_filter(x=x,a=start_absorbing,b=stop_absorbing)
         
-        state.q[0,:] = c*V+(1-c)*V_star
-        state.q[1,:] = c*u+(1-c)*u_star
-        state.q[2,:] = c*eps+(1-c)*eps_star
+        state.q[0,:] = c*V#+(1-c)*V_star
+        state.q[1,:] = c*u#+(1-c)*u_star
+        state.q[2,:] = c*eps#+(1-c)*eps_star
 
 
     #################################################
@@ -364,13 +363,8 @@ def sharpclaw_source_step_damping_scalar(solver,state,dt):
 
     dq = np.empty(q.shape)
 
-    #This works 
-    dq[0,:] = 0.#-dt*np.where(V>1, damping_rate/(np.log(V)*V), 0.)#0.#dt*damping_rate*q[0,:]*(1-damping_flag)
-    dq[1,:] = -dt*damping_rate*q[1,:]*(1-damping_flag)#np.where(np.isclose(damping_flag,1), 0., dq)
-    dq[2,:] = 0.#-dt*damping_rate*q[2,:]*(1-damping_flag)
 
-    #This doesn't work
-    #dq = -dt*damping_rate*q*(1-damping_flag)
+    dq = -dt*damping_rate*q*(1-damping_flag)
     return dq
 
 
